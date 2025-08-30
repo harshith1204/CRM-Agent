@@ -1,0 +1,43 @@
+version: '3.8'
+
+services:
+  mongodb:
+    image: mongo:7.0
+    container_name: crm_mongodb
+    restart: unless-stopped
+    ports:
+      - "27017:27017"
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: admin
+      MONGO_INITDB_ROOT_PASSWORD: password
+      MONGO_INITDB_DATABASE: crm
+    volumes:
+      - mongodb_data:/data/db
+      - ./mongo-init:/docker-entrypoint-initdb.d
+    networks:
+      - crm_network
+
+  crm_agent:
+    build: .
+    container_name: crm_agent_api
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      MONGO_URI: mongodb://admin:password@mongodb:27017/crm?authSource=admin
+      MONGO_DB: crm
+      ALLOWED_COLLECTIONS: leads,tasks,notes,call_logs,activity
+      LLM_PROVIDER: json_stub
+    depends_on:
+      - mongodb
+    networks:
+      - crm_network
+    volumes:
+      - ./.env:/app/.env
+
+volumes:
+  mongodb_data:
+
+networks:
+  crm_network:
+    driver: bridge
