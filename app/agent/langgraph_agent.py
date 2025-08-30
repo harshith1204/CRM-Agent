@@ -14,7 +14,7 @@ except Exception:  # pragma: no cover
 
 def _plan_node(state: Dict[str, Any]) -> Dict[str, Any]:
     # Late import to avoid circular imports during app startup
-    import crm_agent_full as core
+    from app.core import core
 
     schema_catalog = core.build_schema_catalog()
     history = core.MEMORY.get(state["session_id"]) + [{"role": "user", "content": state["message"]}]
@@ -31,7 +31,7 @@ def _plan_node(state: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def _act_node(state: Dict[str, Any]) -> Dict[str, Any]:
-    import crm_agent_full as core
+    from app.core import core
 
     result = core.execute_plan(state["session_id"], state["user_id"], state["plan"])
     state.update({
@@ -42,7 +42,7 @@ def _act_node(state: Dict[str, Any]) -> Dict[str, Any]:
 
 def _respond_node(state: Dict[str, Any]) -> Dict[str, Any]:
     # Shape response to match existing ChatResponse to keep frontend compatibility
-    import crm_agent_full as core
+    from app.core import core
 
     current_time = core.datetime.now(core.timezone.utc).isoformat()
     res = state.get("result", {})
@@ -82,7 +82,7 @@ _GRAPH = None
 
 def run_langgraph_chat(session_id: str, user_id: str, message: str) -> Dict[str, Any]:
     """Run a ReAct-style flow using LangGraph while delegating planning and tools to existing core."""
-    import crm_agent_full as core
+    from app.core import core
 
     # Ensure session metadata and memory are updated similar to core /chat endpoint
     current_time = core.datetime.now(core.timezone.utc).isoformat()
