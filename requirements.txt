@@ -11,9 +11,6 @@ openapi-schema-pydantic
 xlsxwriter
 PyJWT
 openai
-<<<<<<< Current (Your changes)
-=======
 langgraph>=0.2.5
 langchain>=0.2.14
 langchain-core>=0.2.34
->>>>>>> Incoming (Background Agent changes)
