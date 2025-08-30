@@ -9,17 +9,18 @@ from .config import CFG, logger
 
 
 class SwaggerClient:
-    def __init__(self, base_url: str, spec_url: str, auth_header: Optional[str] = None, auth_value: Optional[str] = None):
+    def __init__(self, base_url: str, spec_url: Optional[str] = None, auth_header: Optional[str] = None, auth_value: Optional[str] = None):
         self.base_url = base_url.rstrip("/")
         self.spec_url = spec_url
         self.session = requests.Session()
         if auth_header and auth_value:
             self.session.headers[auth_header] = auth_value
         self.spec: Dict[str, Any] = {}
-        try:
-            self._load_spec()
-        except Exception as e:  # pragma: no cover - network dependent
-            logger.warning(f"Unable to load OpenAPI spec at startup: {e}")
+        if self.spec_url:
+            try:
+                self._load_spec()
+            except Exception as e:  # pragma: no cover - network dependent
+                logger.warning(f"Unable to load OpenAPI spec at startup: {e}")
 
     def _load_spec(self):
         resp = self.session.get(self.spec_url, timeout=20)
@@ -38,6 +39,8 @@ class SwaggerClient:
         headers: Optional[Dict[str, str]] = None,
     ) -> Dict[str, Any]:
         if operation_id and not (path and method):
+            if not self.spec:
+                raise ValueError("operation_id provided but no OpenAPI spec loaded")
             path, method = self._resolve_operation_id(operation_id)
         if not path or not method:
             raise ValueError("Provide either (operation_id) or (path & method)")
@@ -79,7 +82,7 @@ class SwaggerClient:
 
 
 swagger: Optional[SwaggerClient] = None
-if CFG.SWAGGER_BASE_URL and CFG.SWAGGER_SPEC_URL:
+if CFG.SWAGGER_BASE_URL and (CFG.SWAGGER_SPEC_URL or True):
     swagger = SwaggerClient(
         base_url=CFG.SWAGGER_BASE_URL,
         spec_url=CFG.SWAGGER_SPEC_URL,
