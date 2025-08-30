@@ -1,0 +1,287 @@
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* CRM Agent Design System - Professional & Data-Focused */
+
+@layer base {
+  :root {
+    --background: 0 0% 100%;
+    --foreground: 222 24% 9%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 222 24% 9%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 222 24% 9%;
+
+    /* Primary: Professional blue for CRM actions */
+    --primary: 217 91% 55%;
+    --primary-foreground: 0 0% 98%;
+    
+    /* Secondary: Neutral for supporting elements */
+    --secondary: 210 17% 95%;
+    --secondary-foreground: 222 24% 9%;
+
+    --muted: 210 17% 95%;
+    --muted-foreground: 215.4 16.3% 46.9%;
+
+    --accent: 210 17% 95%;
+    --accent-foreground: 222 24% 9%;
+
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 210 40% 98%;
+
+    --border: 214.3 31.8% 91.4%;
+    --input: 214.3 31.8% 91.4%;
+    --ring: 217 91% 55%;
+
+    --radius: 0.5rem;
+
+    /* CRM Specific Colors */
+    --success: 142 71% 45%;
+    --success-light: 142 71% 95%;
+    --warning: 38 92% 50%;
+    --warning-light: 38 92% 95%;
+    --info: 199 89% 48%;
+    --info-light: 199 89% 95%;
+    
+    /* Data visualization palette */
+    --chart-1: 217 91% 55%;
+    --chart-2: 142 71% 45%;
+    --chart-3: 38 92% 50%;
+    --chart-4: 280 100% 70%;
+    --chart-5: 340 75% 55%;
+    
+    /* Agent Console specific */
+    --console-bg: 0 0% 99%;
+    --console-border: 214.3 31.8% 91.4%;
+    --plan-step: 0 0% 100%;
+    --artifact-bg: 0 0% 100%;
+  }
+
+  .dark {
+    --background: 222 24% 4%;
+    --foreground: 210 40% 98%;
+
+    --card: 222 24% 4%;
+    --card-foreground: 210 40% 98%;
+
+    --popover: 222 24% 4%;
+    --popover-foreground: 210 40% 98%;
+
+    --primary: 217 91% 55%;
+    --primary-foreground: 222 24% 4%;
+
+    --secondary: 217.2 32.6% 17.5%;
+    --secondary-foreground: 210 40% 98%;
+
+    --muted: 217.2 32.6% 17.5%;
+    --muted-foreground: 215 20.2% 65.1%;
+
+    --accent: 217.2 32.6% 17.5%;
+    --accent-foreground: 210 40% 98%;
+
+    --destructive: 0 62.8% 30.6%;
+    --destructive-foreground: 210 40% 98%;
+
+    --border: 217.2 32.6% 17.5%;
+    --input: 217.2 32.6% 17.5%;
+    --ring: 217 91% 55%;
+    
+    --console-bg: 222 24% 6%;
+    --console-border: 217.2 32.6% 17.5%;
+    --plan-step: 222 24% 8%;
+    --artifact-bg: 222 24% 8%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-feature-settings: "rlig" 1, "calt" 1;
+  }
+  
+  /* Typography scale for data-heavy interfaces */
+  .text-display {
+    @apply text-3xl font-semibold tracking-tight;
+  }
+  
+  .text-heading {
+    @apply text-2xl font-semibold tracking-tight;
+  }
+  
+  .text-subheading {
+    @apply text-lg font-medium;
+  }
+  
+  .text-body {
+    @apply text-sm;
+  }
+  
+  .text-caption {
+    @apply text-xs text-muted-foreground;
+  }
+  
+  .text-label {
+    @apply text-sm font-medium;
+  }
+}
+
+@layer components {
+  /* Agent Console Layout */
+  .console-grid {
+    @apply grid grid-cols-12 gap-6 h-[calc(100vh-4rem)];
+  }
+  
+  .chat-panel {
+    @apply col-span-5 flex flex-col bg-card border-r;
+  }
+  
+  .plan-panel {
+    @apply col-span-3 flex flex-col bg-console-bg border-r;
+  }
+  
+  .artifacts-panel {
+    @apply col-span-4 flex flex-col bg-artifact-bg;
+  }
+  
+  /* KPI Cards */
+  .kpi-card {
+    @apply bg-card border rounded-lg p-6 hover:shadow-sm transition-shadow;
+  }
+  
+  .kpi-value {
+    @apply text-2xl font-bold text-foreground;
+  }
+  
+  .kpi-label {
+    @apply text-sm text-muted-foreground mt-1;
+  }
+  
+  .kpi-change {
+    @apply text-xs font-medium mt-2 flex items-center gap-1;
+  }
+  
+  .kpi-change.positive {
+    @apply text-emerald-600;
+  }
+  
+  .kpi-change.negative {
+    @apply text-red-600;
+  }
+  
+  /* Data grid enhancements */
+  .data-grid {
+    @apply border rounded-lg overflow-hidden bg-card;
+  }
+  
+  .data-row {
+    @apply border-b last:border-0 hover:bg-muted/30 transition-colors;
+  }
+  
+  .data-cell {
+    @apply px-4 py-3 text-sm;
+  }
+  
+  .data-header {
+    @apply px-4 py-3 text-xs font-medium text-muted-foreground uppercase tracking-wide bg-muted/30;
+  }
+  
+  /* Plan steps */
+  .plan-step {
+    @apply bg-plan-step border rounded-lg p-4 mb-3 hover:shadow-sm transition-shadow;
+  }
+  
+  .plan-step-title {
+    @apply font-medium text-sm mb-2 flex items-center gap-2;
+  }
+  
+  .plan-step-content {
+    @apply text-xs text-muted-foreground;
+  }
+  
+  /* Artifact tabs */
+  .artifact-tab {
+    @apply px-4 py-2 text-sm font-medium border-b-2 border-transparent hover:border-muted-foreground/30 transition-colors;
+  }
+  
+  .artifact-tab.active {
+    @apply border-primary text-primary;
+  }
+}
+
+/* Loading and animation utilities */
+@layer utilities {
+  .animate-fade-in {
+    animation: fadeIn 0.3s ease-in-out;
+  }
+  
+  .animate-slide-up {
+    animation: slideUp 0.3s ease-out;
+  }
+  
+  .animate-scale-in {
+    animation: scaleIn 0.2s ease-out;
+  }
+  
+  .animate-slide-in-right {
+    animation: slideInRight 0.3s ease-out;
+  }
+  
+  .shimmer {
+    background: linear-gradient(90deg, transparent, rgba(255,255,255,0.4), transparent);
+    background-size: 200px 100%;
+    animation: shimmer 1.5s infinite;
+  }
+  
+  .hover-scale {
+    @apply transition-transform duration-200 hover:scale-105;
+  }
+  
+  .transition-smooth {
+    @apply transition-all duration-300 ease-in-out;
+  }
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes slideUp {
+  from { 
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to { 
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes scaleIn {
+  from { 
+    opacity: 0;
+    transform: scale(0.95);
+  }
+  to { 
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes slideInRight {
+  from { transform: translateX(100%); }
+  to { transform: translateX(0); }
+}
+
+@keyframes shimmer {
+  0% { background-position: -200px 0; }
+  100% { background-position: 200px 0; }
+}
