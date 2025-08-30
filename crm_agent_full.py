@@ -1393,6 +1393,13 @@ def chat(req: ChatRequest):
         "session_info": SESSION_METADATA[req.session_id]
     }
 
+# ------------------------- LangGraph Agent Router Mount ---------------------
+try:
+    from app.api.agent_router import router as agent_router  # type: ignore
+    app.include_router(agent_router)
+except Exception as _e:
+    logger.info(f"Agent router not mounted: {_e}")
+
 # ------------------------- Health & Info ---------------------
 @app.get("/")
 def root():
