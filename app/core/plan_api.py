@@ -41,6 +41,13 @@ from .models import (
     UpdateLeadSpec,
     MetabaseQuerySpec,
     MetabaseEmbedSpec,
+    ToggleVehicleTypeSpec,
+    VehicleTripFilterRequestSpec,
+    TrackingLogRequestSpec,
+    VehicleCancelTripSpec,
+    AllocateStudentsToVehicleSpec,
+    ChangeVehicleRouteStatusSpec,
+    AllocateStaffToVehicleSpec,
 )
 
 TOOLS_SCHEMA = {
@@ -55,6 +62,13 @@ TOOLS_SCHEMA = {
     "crm.update_lead": UpdateLeadSpec.model_json_schema(),
     "metabase.query": MetabaseQuerySpec.model_json_schema(),
     "metabase.embed": MetabaseEmbedSpec.model_json_schema(),
+    "transport.toggle_vehicle_type": ToggleVehicleTypeSpec.model_json_schema(),
+    "transport.trips_paged": VehicleTripFilterRequestSpec.model_json_schema(),
+    "transport.add_tracking_log": TrackingLogRequestSpec.model_json_schema(),
+    "transport.cancel_trip": VehicleCancelTripSpec.model_json_schema(),
+    "transport.allocate_students": AllocateStudentsToVehicleSpec.model_json_schema(),
+    "transport.change_route_status": ChangeVehicleRouteStatusSpec.model_json_schema(),
+    "transport.allocate_staff": AllocateStaffToVehicleSpec.model_json_schema(),
 }
 
 

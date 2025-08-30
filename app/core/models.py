@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Literal
 from pydantic import BaseModel, Field
 
 
@@ -61,6 +61,37 @@ class CreateActivitySpec(BaseModel):
 class UpdateLeadSpec(BaseModel):
     lead_id: str
     fields: Dict[str, Any]
+
+
+# Transport tools
+class ToggleVehicleTypeSpec(BaseModel):
+    id: str
+    is_active: bool
+
+
+class VehicleTripFilterRequestSpec(BaseModel):
+    body: Dict[str, Any] = Field(default_factory=dict)
+
+
+class TrackingLogRequestSpec(BaseModel):
+    body: Dict[str, Any] = Field(default_factory=dict)
+
+
+class VehicleCancelTripSpec(BaseModel):
+    trip_id: str
+
+
+class AllocateStudentsToVehicleSpec(BaseModel):
+    body: Dict[str, Any] = Field(default_factory=dict)
+
+
+class ChangeVehicleRouteStatusSpec(BaseModel):
+    id: str
+    status: Literal["ACTIVE", "INACTIVE", "UNDER_MAINTENANCE"]
+
+
+class AllocateStaffToVehicleSpec(BaseModel):
+    body: Dict[str, Any] = Field(default_factory=dict)
 
 
 # Metabase tools
