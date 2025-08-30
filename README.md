@@ -265,6 +265,7 @@ This is a single-file application designed for clarity and ease of deployment. I
    - For development: use `LLM_PROVIDER=json_stub`
 
 ### Logs and Debugging
+<<<<<<< Current (Your changes)
 
 The application logs to stdout with INFO level by default. Key events logged:
 - Tool execution and errors
@@ -278,4 +279,15 @@ For more verbose logging, set the log level to DEBUG in the application.
 Instructions will be added as the project develops.
 
 =======
+>>>>>>> Incoming (Background Agent changes)
+=======
+
+The application logs to stdout with INFO level by default. Key events logged:
+- Tool execution and errors
+- Metabase authentication attempts
+- Swagger client initialization
+- Plan generation and execution
+
+For more verbose logging, set the log level to DEBUG in the application.
+
 >>>>>>> Incoming (Background Agent changes)

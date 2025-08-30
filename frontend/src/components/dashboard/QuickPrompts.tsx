@@ -2,6 +2,7 @@
 import { Sparkles } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { useNavigate } from "react-router-dom";
 
 const prompts = [
   "Deals created last week by owner (bar chart)",
@@ -12,6 +13,13 @@ const prompts = [
 ];
 
 export function QuickPrompts() {
+  const navigate = useNavigate();
+
+  const handlePromptClick = (prompt: string) => {
+    // Navigate to agent console with the prompt
+    navigate('/agent', { state: { initialPrompt: prompt } });
+  };
+
   return (
     <Card>
       <CardHeader>
@@ -28,10 +36,7 @@ export function QuickPrompts() {
               variant="outline"
               size="sm"
               className="text-left h-auto py-2 px-3 whitespace-normal justify-start"
-              onClick={() => {
-                // Navigate to console with pre-filled prompt
-                console.log("Navigate to console with:", prompt);
-              }}
+              onClick={() => handlePromptClick(prompt)}
             >
               {prompt}
             </Button>
