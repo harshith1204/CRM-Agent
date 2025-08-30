@@ -1,0 +1,17 @@
+# ReAct CRM Agent Requirements
+# Minimal dependencies for the ReAct-style agent
+
+# Core dependencies
+fastapi>=0.100.0
+uvicorn>=0.23.0
+pydantic>=2.0.0
+python-dotenv>=1.0.0
+
+# Data processing
+pandas>=2.0.0
+pymongo>=4.0.0
+
+# Optional: for production use with real LLM
+# openai>=1.0.0
+# anthropic>=0.7.0
+# langchain>=0.1.0
