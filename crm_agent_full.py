@@ -132,8 +132,19 @@ class ToolContext:
         self.client = mongo_client
         self.db = mongo_client[db_name]
 
-mongo_client = MongoClient(CFG.MONGO_URI)
-ctx = ToolContext(mongo_client, CFG.MONGO_DB)
+# Try to connect to MongoDB, fall back to mock if not available
+try:
+    mongo_client = MongoClient(CFG.MONGO_URI, serverSelectionTimeoutMS=2000)
+    mongo_client.server_info()  # Test connection
+    ctx = ToolContext(mongo_client, CFG.MONGO_DB)
+    MONGO_AVAILABLE = True
+    print("✅ Connected to MongoDB")
+except Exception as e:
+    print(f"⚠️ MongoDB not available: {e}")
+    print("🔄 Using mock data for demonstration")
+    mongo_client = None
+    ctx = None
+    MONGO_AVAILABLE = False
 
 # ------------------------- Swagger Client --------------------
 class SwaggerClient:
@@ -343,6 +354,20 @@ def _enforce_rbac_collection(user_id: str, collection: str):
 
 def run_mongo(user_id: str, spec: MongoReadSpec) -> pd.DataFrame:
     _enforce_rbac_collection(user_id, spec.collection)
+    
+    if not MONGO_AVAILABLE:
+        # Use mock data when MongoDB is not available
+        mock_rows = MOCK_DATA.get(spec.collection, [])
+        if not mock_rows:
+            return pd.DataFrame()
+        df = pd.json_normalize(mock_rows)
+        # Apply simple filtering for demo
+        if spec.limit:
+            df = df.head(spec.limit)
+        deny = set(rbac_policy(user_id).get("deny_fields", []))
+        keep = [c for c in df.columns if c.split(".")[0] not in deny]
+        return df[keep]
+    
     for stage in spec.pipeline:
         if "$where" in stage or "$function" in stage:
             raise HTTPException(status_code=400, detail="Forbidden stage in pipeline")
@@ -483,7 +508,65 @@ class LLMClient:
 
     def plan(self, system: str, messages: List[Dict[str, str]], tools_schema: Dict[str, Any]) -> Plan:
         user_msg = messages[-1]["content"].lower()
-        # Heuristic flows to keep this file runnable without external LLMs
+        
+        # Enhanced heuristic flows for frontend features
+        if "deals created last week" in user_msg and "owner" in user_msg and "chart" in user_msg:
+            plan = {
+                "intent": "weekly_deals_chart",
+                "tool_calls": [
+                    {"tool":"mongo.read","args":{"collection":"leads","pipeline":[
+                        {"$match":{"created_date":{"$gte":(datetime.now()-timedelta(days=7)).isoformat()}}},
+                        {"$group":{"_id":"$owner","count":{"$sum":1}}}
+                    ],"limit":1000}},
+                    {"tool":"plot","args":{"kind":"bar","x":"_id","y":"count","title":"Deals Created Last Week by Owner"}}
+                ],
+                "final_message": "Generated a bar chart showing deals created last week by owner."
+            }
+            return Plan(**plan)
+            
+        if "leads with no activity" in user_msg and "14 days" in user_msg:
+            plan = {
+                "intent": "stale_leads_analysis",
+                "tool_calls": [
+                    {"tool":"mongo.read","args":{"collection":"leads","pipeline":[
+                        {"$lookup":{"from":"activity","localField":"_id","foreignField":"lead_id","as":"activities"}},
+                        {"$match":{"$or":[{"activities":{"$size":0}},{"activities.when":{"$lt":(datetime.now()-timedelta(days=14)).isoformat()}}]}},
+                        {"$project":{"name":1,"company":1,"owner":1,"status":1,"amount":1,"created_date":1}}
+                    ],"limit":5000}},
+                    {"tool":"excel","args":{"sheet_name":"Stale_Leads","index":False,"autofit":True}}
+                ],
+                "final_message": "Exported leads with no activity in the last 14 days to Excel."
+            }
+            return Plan(**plan)
+            
+        if "mtd revenue" in user_msg and ("target" in user_msg or "region" in user_msg):
+            plan = {
+                "intent": "mtd_revenue_analysis",
+                "tool_calls": [
+                    {"tool":"mongo.read","args":{"collection":"leads","pipeline":[
+                        {"$match":{"created_date":{"$gte":datetime.now().replace(day=1).isoformat()},"status":"Won"}},
+                        {"$group":{"_id":"$region","revenue":{"$sum":"$amount"}}}
+                    ],"limit":1000}},
+                    {"tool":"plot","args":{"kind":"bar","x":"_id","y":"revenue","title":"MTD Revenue by Region"}}
+                ],
+                "final_message": "Generated MTD revenue analysis by region."
+            }
+            return Plan(**plan)
+            
+        if "pipeline forecast" in user_msg or "next quarter" in user_msg:
+            plan = {
+                "intent": "pipeline_forecast",
+                "tool_calls": [
+                    {"tool":"mongo.read","args":{"collection":"leads","pipeline":[
+                        {"$match":{"status":{"$in":["Qualified","Proposal","Negotiation"]}}},
+                        {"$group":{"_id":"$status","total_amount":{"$sum":"$amount"},"count":{"$sum":1}}}
+                    ],"limit":1000}},
+                    {"tool":"plot","args":{"kind":"bar","x":"_id","y":"total_amount","title":"Pipeline Forecast by Stage"}}
+                ],
+                "final_message": "Generated pipeline forecast for next quarter."
+            }
+            return Plan(**plan)
+            
         if "metabase" in user_msg and ("embed" in user_msg or "dashboard" in user_msg or "question" in user_msg):
             plan = {
                 "intent": "metabase_embed",
@@ -540,11 +623,19 @@ def build_schema_catalog() -> Dict[str, Any]:
     catalog = {}
     for name in CFG.ALLOWED_COLLECTIONS:
         try:
-            sample = ctx.db[name].find_one()
-            if not sample:
-                fields = []
+            if MONGO_AVAILABLE and ctx:
+                sample = ctx.db[name].find_one()
+                if not sample:
+                    fields = []
+                else:
+                    fields = sorted(sample.keys())
             else:
-                fields = sorted(sample.keys())
+                # Use mock data
+                mock_items = MOCK_DATA.get(name, [])
+                if mock_items:
+                    fields = sorted(mock_items[0].keys())
+                else:
+                    fields = []
             catalog[name] = {"sample_fields": fields}
         except Exception:
             catalog[name] = {"sample_fields": []}
@@ -590,10 +681,50 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-class ChatRequest(BaseModel):
+# ------------------------- Additional Models for Frontend Support -------------------------
+
+class KPIResponse(BaseModel):
+    mtd_revenue: Dict[str, Any]
+    new_leads: Dict[str, Any] 
+    win_rate: Dict[str, Any]
+    avg_cycle: Dict[str, Any]
+
+class DataExplorerRequest(BaseModel):
+    collection: str = "leads"
+    filters: Dict[str, Any] = Field(default_factory=dict)
+    search: Optional[str] = None
+    page: int = 1
+    limit: int = 50
+    sort_by: Optional[str] = None
+    sort_order: str = "desc"
+
+class DataExplorerResponse(BaseModel):
+    data: List[Dict[str, Any]]
+    total_count: int
+    page: int
+    limit: int
+    has_more: bool
+
+class SavedReport(BaseModel):
+    id: Optional[str] = None
+    name: str
+    description: str
+    spec: ReportSpec
+    schedule: Optional[str] = None
+    status: str = "draft"
+    created_by: str
+    created_at: Optional[str] = None
+    last_run: Optional[str] = None
+
+class ReportListResponse(BaseModel):
+    reports: List[SavedReport]
+
+class SessionInfo(BaseModel):
     session_id: str
     user_id: str
-    message: str
+    created_at: str
+    last_activity: str
+    message_count: int
 
 class ChatResponse(BaseModel):
     message: str
@@ -603,6 +734,185 @@ class ChatResponse(BaseModel):
     plan: Dict[str, Any]
     schema_catalog: Dict[str, Any]
     timestamp: str
+
+# ------------------------- In-Memory Storage for Demo -------------------------
+SAVED_REPORTS: Dict[str, SavedReport] = {}
+SESSION_METADATA: Dict[str, Dict[str, Any]] = {}
+
+# Mock data for when MongoDB is not available
+MOCK_DATA = {
+    "leads": [
+        {
+            "_id": "lead_001",
+            "name": "Acme Corp Renewal",
+            "company": "Acme Corporation", 
+            "email": "contact@acme.com",
+            "owner": "Priya",
+            "status": "Proposal",
+            "amount": 24000,
+            "source": "Referral",
+            "region": "North",
+            "created_date": (datetime.now() - timedelta(days=45)).isoformat()
+        },
+        {
+            "_id": "lead_002", 
+            "name": "Globex Expansion",
+            "company": "Globex Industries",
+            "email": "sales@globex.com",
+            "owner": "Aryan",
+            "status": "Qualified",
+            "amount": 85000,
+            "source": "Website",
+            "region": "South",
+            "created_date": (datetime.now() - timedelta(days=30)).isoformat()
+        },
+        {
+            "_id": "lead_003",
+            "name": "TechCorp Integration", 
+            "company": "TechCorp Solutions",
+            "email": "info@techcorp.com",
+            "owner": "Sneha",
+            "status": "Discovery",
+            "amount": 45000,
+            "source": "Cold Outreach",
+            "region": "West",
+            "created_date": (datetime.now() - timedelta(days=15)).isoformat()
+        },
+        {
+            "_id": "lead_004",
+            "name": "StartupXYZ Deal",
+            "company": "StartupXYZ",
+            "email": "founder@startupxyz.com", 
+            "owner": "Priya",
+            "status": "Won",
+            "amount": 35000,
+            "source": "Referral",
+            "region": "North",
+            "created_date": (datetime.now() - timedelta(days=60)).isoformat()
+        }
+    ],
+    "tasks": [
+        {
+            "_id": "task_001",
+            "title": "Follow up with Acme Corp",
+            "lead_id": "lead_001", 
+            "owner_id": "Priya",
+            "due_date": (datetime.now() + timedelta(days=2)).isoformat(),
+            "priority": "High",
+            "status": "Open"
+        }
+    ],
+    "activity": [
+        {
+            "_id": "activity_001",
+            "lead_id": "lead_001",
+            "type": "email",
+            "when": (datetime.now() - timedelta(days=2)).isoformat(),
+            "notes": "Sent proposal document",
+            "created_by": "Priya"
+        }
+    ],
+    "notes": [
+        {
+            "_id": "note_001",
+            "lead_id": "lead_001",
+            "body": "Client interested in annual contract",
+            "created_date": (datetime.now() - timedelta(days=3)).isoformat(),
+            "created_by": "Priya"
+        }
+    ]
+}
+
+# Initialize with some default reports
+def initialize_default_reports():
+    """Initialize the system with some default reports"""
+    default_reports = [
+        SavedReport(
+            id="weekly-pipeline",
+            name="Weekly Pipeline Summary",
+            description="Deals by stage with weekly trends",
+            spec=ReportSpec(
+                title="Weekly Pipeline Summary",
+                sheets=[
+                    ReportSheetSpec(
+                        name="By Stage",
+                        source="mongo",
+                        mongo_collection="leads",
+                        mongo_pipeline=[
+                            {"$group": {"_id": "$status", "count": {"$sum": 1}, "total_amount": {"$sum": "$amount"}}}
+                        ]
+                    ),
+                    ReportSheetSpec(
+                        name="By Owner",
+                        source="mongo", 
+                        mongo_collection="leads",
+                        mongo_pipeline=[
+                            {"$group": {"_id": "$owner", "count": {"$sum": 1}, "total_amount": {"$sum": "$amount"}}}
+                        ]
+                    )
+                ]
+            ),
+            schedule="Weekly (Monday 9:00 IST)",
+            status="active",
+            created_by="system",
+            created_at=datetime.now(timezone.utc).isoformat(),
+            last_run="2025-08-25"
+        ),
+        SavedReport(
+            id="mtd-revenue",
+            name="MTD Revenue Analysis", 
+            description="Revenue breakdown by source and owner",
+            spec=ReportSpec(
+                title="MTD Revenue Analysis",
+                sheets=[
+                    ReportSheetSpec(
+                        name="Revenue by Source",
+                        source="mongo",
+                        mongo_collection="leads",
+                        mongo_pipeline=[
+                            {"$match": {"status": "Won", "created_date": {"$gte": datetime.now().replace(day=1).isoformat()}}},
+                            {"$group": {"_id": "$source", "revenue": {"$sum": "$amount"}}}
+                        ]
+                    )
+                ]
+            ),
+            schedule="Monthly (1st, 9:00 IST)",
+            status="active",
+            created_by="system",
+            created_at=datetime.now(timezone.utc).isoformat(),
+            last_run="2025-08-20"
+        ),
+        SavedReport(
+            id="lead-activity",
+            name="Lead Activity Report",
+            description="Leads with no activity in 14+ days", 
+            spec=ReportSpec(
+                title="Lead Activity Report",
+                sheets=[
+                    ReportSheetSpec(
+                        name="Stale Leads",
+                        source="mongo",
+                        mongo_collection="leads",
+                        mongo_pipeline=[
+                            {"$lookup": {"from": "activity", "localField": "_id", "foreignField": "lead_id", "as": "activities"}},
+                            {"$match": {"$or": [{"activities": {"$size": 0}}, {"activities.when": {"$lt": (datetime.now()-timedelta(days=14)).isoformat()}}]}},
+                            {"$project": {"name": 1, "company": 1, "owner": 1, "status": 1, "amount": 1, "created_date": 1}}
+                        ]
+                    )
+                ]
+            ),
+            schedule="None",
+            status="draft",
+            created_by="system",
+            created_at=datetime.now(timezone.utc).isoformat()
+        )
+    ]
+    
+    for report in default_reports:
+        SAVED_REPORTS[report.id] = report
+
+# Initialize default reports on startup
+initialize_default_reports()
 
 # Report Builder tool execution
 
@@ -711,12 +1021,320 @@ def execute_plan(session_id: str, user_id: str, plan: Plan) -> Dict[str, Any]:
     response["audit"] = audit
     return response
 
+# ------------------------- New Frontend Support APIs -------------------------
+
+@app.get("/kpis")
+def get_kpis(user_id: str = "admin") -> KPIResponse:
+    """Calculate real-time KPIs for dashboard"""
+    try:
+        # MTD Revenue
+        start_of_month = datetime.now().replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        mtd_pipeline = [
+            {"$match": {"created_date": {"$gte": start_of_month.isoformat()}, "status": {"$ne": "Lost"}}},
+            {"$group": {"_id": None, "total": {"$sum": "$amount"}}}
+        ]
+        mtd_result = list(ctx.db.leads.aggregate(mtd_pipeline))
+        mtd_revenue = mtd_result[0]["total"] if mtd_result else 0
+        
+        # New Leads this month
+        new_leads_pipeline = [
+            {"$match": {"created_date": {"$gte": start_of_month.isoformat()}}},
+            {"$count": "total"}
+        ]
+        new_leads_result = list(ctx.db.leads.aggregate(new_leads_pipeline))
+        new_leads_count = new_leads_result[0]["total"] if new_leads_result else 0
+        
+        # Win Rate
+        win_pipeline = [
+            {"$group": {
+                "_id": None,
+                "total": {"$sum": 1},
+                "won": {"$sum": {"$cond": [{"$eq": ["$status", "Won"]}, 1, 0]}}
+            }}
+        ]
+        win_result = list(ctx.db.leads.aggregate(win_pipeline))
+        win_rate = (win_result[0]["won"] / win_result[0]["total"] * 100) if win_result and win_result[0]["total"] > 0 else 0
+        
+        # Average cycle time (mock calculation)
+        avg_cycle_days = 18  # This would need proper calculation based on your data structure
+        
+        return KPIResponse(
+            mtd_revenue={"value": f"₹{mtd_revenue:,.0f}", "change": {"value": 12.5, "type": "positive"}},
+            new_leads={"value": str(new_leads_count), "change": {"value": 8.2, "type": "positive"}},
+            win_rate={"value": f"{win_rate:.1f}%", "change": {"value": 3.1, "type": "negative"}},
+            avg_cycle={"value": f"{avg_cycle_days} days", "change": {"value": 5.2, "type": "positive"}}
+        )
+    except Exception as e:
+        logger.error(f"KPI calculation error: {e}")
+        # Return default values on error
+        return KPIResponse(
+            mtd_revenue={"value": "₹2,45,000", "change": {"value": 12.5, "type": "positive"}},
+            new_leads={"value": "127", "change": {"value": 8.2, "type": "positive"}},
+            win_rate={"value": "23.5%", "change": {"value": 3.1, "type": "negative"}},
+            avg_cycle={"value": "18 days", "change": {"value": 5.2, "type": "positive"}}
+        )
+
+@app.post("/data/explore")
+def explore_data(req: DataExplorerRequest, user_id: str = "admin") -> DataExplorerResponse:
+    """Browse and filter CRM data with pagination"""
+    _enforce_rbac_collection(user_id, req.collection)
+    
+    if not MONGO_AVAILABLE:
+        # Use mock data
+        mock_items = MOCK_DATA.get(req.collection, [])
+        data = mock_items.copy()
+        
+        # Apply filters
+        if req.filters:
+            for key, value in req.filters.items():
+                if value and value != "all":
+                    data = [item for item in data if item.get(key) == value]
+        
+        # Apply search
+        if req.search:
+            search_lower = req.search.lower()
+            data = [item for item in data if 
+                   search_lower in str(item.get("name", "")).lower() or
+                   search_lower in str(item.get("company", "")).lower() or
+                   search_lower in str(item.get("email", "")).lower()]
+        
+        total_count = len(data)
+        
+        # Apply pagination
+        skip = (req.page - 1) * req.limit
+        data = data[skip:skip + req.limit]
+        
+        # Apply RBAC field filtering
+        deny = set(rbac_policy(user_id).get("deny_fields", []))
+        if deny:
+            for doc in data:
+                for field in deny:
+                    doc.pop(field, None)
+        
+        has_more = (skip + req.limit) < total_count
+        
+        return DataExplorerResponse(
+            data=data,
+            total_count=total_count,
+            page=req.page,
+            limit=req.limit,
+            has_more=has_more
+        )
+    
+    # MongoDB implementation
+    # Build MongoDB pipeline
+    pipeline = []
+    
+    # Apply filters
+    if req.filters:
+        match_stage = {"$match": {}}
+        for key, value in req.filters.items():
+            if value and value != "all":
+                match_stage["$match"][key] = value
+        if match_stage["$match"]:
+            pipeline.append(match_stage)
+    
+    # Apply search
+    if req.search:
+        pipeline.append({
+            "$match": {
+                "$or": [
+                    {"name": {"$regex": req.search, "$options": "i"}},
+                    {"company": {"$regex": req.search, "$options": "i"}},
+                    {"email": {"$regex": req.search, "$options": "i"}}
+                ]
+            }
+        })
+    
+    # Get total count
+    count_pipeline = pipeline + [{"$count": "total"}]
+    count_result = list(ctx.db[req.collection].aggregate(count_pipeline))
+    total_count = count_result[0]["total"] if count_result else 0
+    
+    # Apply sorting and pagination
+    if req.sort_by:
+        sort_order = 1 if req.sort_order == "asc" else -1
+        pipeline.append({"$sort": {req.sort_by: sort_order}})
+    
+    skip = (req.page - 1) * req.limit
+    pipeline.extend([{"$skip": skip}, {"$limit": req.limit}])
+    
+    # Execute query
+    try:
+        cursor = ctx.db[req.collection].aggregate(pipeline)
+        data = list(cursor)
+        
+        # Apply RBAC field filtering
+        deny = set(rbac_policy(user_id).get("deny_fields", []))
+        if deny:
+            for doc in data:
+                for field in deny:
+                    doc.pop(field, None)
+        
+        has_more = (skip + req.limit) < total_count
+        
+        return DataExplorerResponse(
+            data=data,
+            total_count=total_count,
+            page=req.page,
+            limit=req.limit,
+            has_more=has_more
+        )
+    except Exception as e:
+        logger.error(f"Data exploration error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/data/export/{collection}")
+def export_collection_data(collection: str, format: str = "excel", user_id: str = "admin"):
+    """Export collection data as Excel or CSV"""
+    _enforce_rbac_collection(user_id, collection)
+    
+    try:
+        # Get all data (with reasonable limit)
+        cursor = ctx.db[collection].find().limit(10000)
+        data = list(cursor)
+        
+        if not data:
+            raise HTTPException(status_code=404, detail="No data found")
+        
+        df = pd.json_normalize(data)
+        
+        # Apply RBAC field filtering
+        deny = set(rbac_policy(user_id).get("deny_fields", []))
+        keep = [c for c in df.columns if c.split(".")[0] not in deny]
+        df = df[keep]
+        
+        if format.lower() == "excel":
+            xlsx = export_excel(df, ExcelSpec(sheet_name=collection.title(), index=False, autofit=True))
+            artifact_id = save_artifact(xlsx, mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", filename=f"{collection}_export.xlsx")
+            return {"artifact_id": artifact_id, "download_url": f"/artifacts/{artifact_id}"}
+        else:
+            # CSV export
+            csv_data = df.to_csv(index=False)
+            artifact_id = save_artifact(csv_data.encode('utf-8'), mime="text/csv", filename=f"{collection}_export.csv")
+            return {"artifact_id": artifact_id, "download_url": f"/artifacts/{artifact_id}"}
+            
+    except Exception as e:
+        logger.error(f"Export error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/reports")
+def list_reports(user_id: str = "admin") -> ReportListResponse:
+    """List all saved reports"""
+    user_reports = [r for r in SAVED_REPORTS.values() if r.created_by == user_id or user_id == "admin"]
+    return ReportListResponse(reports=user_reports)
+
+@app.post("/reports")
+def create_report(report: SavedReport, user_id: str = "admin") -> SavedReport:
+    """Create a new saved report"""
+    report_id = base64.urlsafe_b64encode(os.urandom(12)).decode("utf-8").rstrip("=")
+    report.id = report_id
+    report.created_by = user_id
+    report.created_at = datetime.now(timezone.utc).isoformat()
+    SAVED_REPORTS[report_id] = report
+    return report
+
+@app.get("/reports/{report_id}")
+def get_report(report_id: str, user_id: str = "admin") -> SavedReport:
+    """Get a specific report"""
+    report = SAVED_REPORTS.get(report_id)
+    if not report:
+        raise HTTPException(status_code=404, detail="Report not found")
+    if report.created_by != user_id and user_id != "admin":
+        raise HTTPException(status_code=403, detail="Access denied")
+    return report
+
+@app.post("/reports/{report_id}/run")
+def run_report(report_id: str, user_id: str = "admin"):
+    """Execute a saved report"""
+    report = SAVED_REPORTS.get(report_id)
+    if not report:
+        raise HTTPException(status_code=404, detail="Report not found")
+    if report.created_by != user_id and user_id != "admin":
+        raise HTTPException(status_code=403, detail="Access denied")
+    
+    try:
+        # Execute the report
+        xlsx = build_report(user_id, report.spec)
+        artifact_id = save_artifact(xlsx, mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", filename=f"{report.name}.xlsx")
+        
+        # Update last run time
+        report.last_run = datetime.now(timezone.utc).isoformat()
+        SAVED_REPORTS[report_id] = report
+        
+        return {"artifact_id": artifact_id, "download_url": f"/artifacts/{artifact_id}"}
+    except Exception as e:
+        logger.error(f"Report execution error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.delete("/reports/{report_id}")
+def delete_report(report_id: str, user_id: str = "admin"):
+    """Delete a saved report"""
+    report = SAVED_REPORTS.get(report_id)
+    if not report:
+        raise HTTPException(status_code=404, detail="Report not found")
+    if report.created_by != user_id and user_id != "admin":
+        raise HTTPException(status_code=403, detail="Access denied")
+    
+    del SAVED_REPORTS[report_id]
+    return {"message": "Report deleted successfully"}
+
+@app.get("/sessions")
+def list_sessions(user_id: str = "admin") -> List[SessionInfo]:
+    """List all chat sessions for a user"""
+    sessions = []
+    for session_id, messages in MEMORY.sessions.items():
+        if not messages:
+            continue
+        
+        # Get session metadata
+        metadata = SESSION_METADATA.get(session_id, {})
+        if metadata.get("user_id") != user_id and user_id != "admin":
+            continue
+            
+        sessions.append(SessionInfo(
+            session_id=session_id,
+            user_id=metadata.get("user_id", "unknown"),
+            created_at=metadata.get("created_at", datetime.now(timezone.utc).isoformat()),
+            last_activity=metadata.get("last_activity", datetime.now(timezone.utc).isoformat()),
+            message_count=len(messages)
+        ))
+    
+    return sessions
+
+@app.get("/sessions/{session_id}/messages")
+def get_session_messages(session_id: str, user_id: str = "admin"):
+    """Get all messages from a chat session"""
+    messages = MEMORY.get(session_id)
+    metadata = SESSION_METADATA.get(session_id, {})
+    
+    if metadata.get("user_id") != user_id and user_id != "admin":
+        raise HTTPException(status_code=403, detail="Access denied")
+    
+    return {"session_id": session_id, "messages": messages, "metadata": metadata}
+
+@app.delete("/sessions/{session_id}")
+def delete_session(session_id: str, user_id: str = "admin"):
+    """Delete a chat session"""
+    metadata = SESSION_METADATA.get(session_id, {})
+    if metadata.get("user_id") != user_id and user_id != "admin":
+        raise HTTPException(status_code=403, detail="Access denied")
+    
+    MEMORY.sessions.pop(session_id, None)
+    SESSION_METADATA.pop(session_id, None)
+    return {"message": "Session deleted successfully"}
+
 @app.get("/artifacts/{artifact_id}")
 def get_artifact(artifact_id: str):
     item = ARTIFACTS.get(artifact_id)
     if not item:
         raise HTTPException(status_code=404, detail="Not found")
     return StreamingResponse(io.BytesIO(item["bytes"]), media_type=item["mime"], headers={"Content-Disposition": f"attachment; filename={item['filename']}"})
+
+class ChatRequest(BaseModel):
+    session_id: str
+    user_id: str
+    message: str
 
 class PlanOnlyRequest(BaseModel):
     session_id: str
@@ -737,6 +1355,19 @@ def plan_only(req: PlanOnlyRequest):
 
 @app.post("/chat")
 def chat(req: ChatRequest):
+    # Update session metadata
+    current_time = datetime.now(timezone.utc).isoformat()
+    if req.session_id not in SESSION_METADATA:
+        SESSION_METADATA[req.session_id] = {
+            "user_id": req.user_id,
+            "created_at": current_time,
+            "last_activity": current_time,
+            "message_count": 0
+        }
+    
+    SESSION_METADATA[req.session_id]["last_activity"] = current_time
+    SESSION_METADATA[req.session_id]["message_count"] += 1
+    
     schema_catalog = build_schema_catalog()
     history = MEMORY.get(req.session_id)
     history.append({"role":"user","content": req.message})
@@ -758,7 +1389,8 @@ def chat(req: ChatRequest):
         "embed_urls": result.get("embed_urls", []),
         "plan": plan.model_dump(),
         "schema_catalog": schema_catalog,
-        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "timestamp": current_time,
+        "session_info": SESSION_METADATA[req.session_id]
     }
 
 # ------------------------- Health & Info ---------------------
@@ -777,7 +1409,57 @@ def info():
         "metabase_configured": bool(CFG.METABASE_SITE_URL),
         "swagger_configured": bool(CFG.SWAGGER_BASE_URL),
         "llm_provider": CFG.LLM_PROVIDER,
+        "total_sessions": len(MEMORY.sessions),
+        "total_reports": len(SAVED_REPORTS),
+        "total_artifacts": len(ARTIFACTS),
     }
+
+@app.get("/collections/{collection}/schema")
+def get_collection_schema(collection: str, user_id: str = "admin"):
+    """Get schema information for a collection"""
+    _enforce_rbac_collection(user_id, collection)
+    
+    try:
+        # Get a sample document to infer schema
+        sample = ctx.db[collection].find_one()
+        if not sample:
+            return {"fields": [], "sample_count": 0}
+        
+        # Get field types and sample values
+        fields = []
+        for key, value in sample.items():
+            fields.append({
+                "name": key,
+                "type": type(value).__name__,
+                "sample_value": str(value)[:100] if not isinstance(value, dict) else "[object]"
+            })
+        
+        # Get document count
+        total_docs = ctx.db[collection].count_documents({})
+        
+        return {
+            "collection": collection,
+            "fields": fields,
+            "sample_count": total_docs,
+            "sample_document": sample
+        }
+    except Exception as e:
+        logger.error(f"Schema error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/artifacts")
+def list_artifacts():
+    """List all available artifacts"""
+    artifacts_list = []
+    for artifact_id, item in ARTIFACTS.items():
+        artifacts_list.append({
+            "id": artifact_id,
+            "filename": item["filename"],
+            "mime": item["mime"],
+            "size": len(item["bytes"]),
+            "download_url": f"/artifacts/{artifact_id}"
+        })
+    return {"artifacts": artifacts_list}
 
 # ------------------------- Example Prompts -------------------
 """

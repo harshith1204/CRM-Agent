@@ -1,9 +1,12 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { useLocation } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
-import { Send, Sparkles } from "lucide-react";
+import { Send, Sparkles, Loader2 } from "lucide-react";
+import { crmAPI, type ChatResponse } from "@/lib/api";
+import { useToast } from "@/hooks/use-toast";
 
 interface ChatPanelProps {
   onPlanUpdate: (plan: any) => void;
@@ -15,11 +18,17 @@ interface Message {
   type: 'user' | 'agent';
   content: string;
   timestamp: Date;
+  artifacts?: any;
+  embed_urls?: string[];
 }
 
 export function ChatPanel({ onPlanUpdate, onArtifactCreate }: ChatPanelProps) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [sessionId] = useState(() => `session_${Date.now()}`);
+  const location = useLocation();
+  const { toast } = useToast();
 
   const quickPrompts = [
     "Deals created last week by owner (bar chart)",
@@ -28,8 +37,15 @@ export function ChatPanel({ onPlanUpdate, onArtifactCreate }: ChatPanelProps) {
     "MTD revenue by source"
   ];
 
-  const handleSend = () => {
-    if (!input.trim()) return;
+  // Handle initial prompt from navigation state
+  useEffect(() => {
+    if (location.state?.initialPrompt) {
+      setInput(location.state.initialPrompt);
+    }
+  }, [location.state]);
+
+  const handleSend = async () => {
+    if (!input.trim() || loading) return;
 
     const userMessage: Message = {
       id: Date.now().toString(),
@@ -39,26 +55,67 @@ export function ChatPanel({ onPlanUpdate, onArtifactCreate }: ChatPanelProps) {
     };
 
     setMessages(prev => [...prev, userMessage]);
+    setLoading(true);
     
-    // Simulate agent response
-    setTimeout(() => {
+    try {
+      const response: ChatResponse = await crmAPI.sendMessage({
+        session_id: sessionId,
+        user_id: "admin", // In a real app, this would come from auth
+        message: input
+      });
+      
       const agentMessage: Message = {
         id: (Date.now() + 1).toString(),
         type: 'agent',
-        content: `I'll help you with: "${input}". Let me analyze your CRM data...`,
-        timestamp: new Date()
+        content: response.message,
+        timestamp: new Date(),
+        artifacts: response.artifacts,
+        embed_urls: response.embed_urls
       };
+      
       setMessages(prev => [...prev, agentMessage]);
       
-      // Mock plan update
-      onPlanUpdate({
-        steps: [
-          { id: 1, name: "Fetch CRM data", status: "pending" },
-          { id: 2, name: "Group by criteria", status: "pending" },
-          { id: 3, name: "Generate output", status: "pending" }
-        ]
+      // Update plan panel
+      onPlanUpdate(response.plan);
+      
+      // Create artifacts
+      if (response.artifacts) {
+        Object.entries(response.artifacts).forEach(([type, artifact]: [string, any]) => {
+          onArtifactCreate({
+            id: artifact.artifact_id,
+            type: type.includes('excel') ? 'excel' : type.includes('plot') ? 'chart' : 'table',
+            name: `Generated ${type}`,
+            timestamp: new Date(),
+            download_url: artifact.download_url
+          });
+        });
+      }
+      
+      if (response.embed_urls?.length > 0) {
+        toast({
+          title: "Metabase Dashboard",
+          description: "Embedded dashboard URLs generated successfully.",
+        });
+      }
+      
+    } catch (error) {
+      console.error('Chat error:', error);
+      toast({
+        title: "Error",
+        description: "Failed to send message. Please try again.",
+        variant: "destructive",
       });
-    }, 1000);
+      
+      const errorMessage: Message = {
+        id: (Date.now() + 1).toString(),
+        type: 'agent',
+        content: "Sorry, I encountered an error processing your request. Please try again.",
+        timestamp: new Date()
+      };
+      setMessages(prev => [...prev, errorMessage]);
+    } finally {
+      setLoading(false);
+    }
 
     setInput("");
   };
@@ -129,11 +186,12 @@ export function ChatPanel({ onPlanUpdate, onArtifactCreate }: ChatPanelProps) {
             value={input}
             onChange={(e) => setInput(e.target.value)}
             placeholder="Ask about your CRM data..."
-            onKeyPress={(e) => e.key === 'Enter' && handleSend()}
+            onKeyPress={(e) => e.key === 'Enter' && !loading && handleSend()}
             className="flex-1"
+            disabled={loading}
           />
-          <Button onClick={handleSend} size="sm">
-            <Send className="h-4 w-4" />
+          <Button onClick={handleSend} size="sm" disabled={loading}>
+            {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
           </Button>
         </div>
         

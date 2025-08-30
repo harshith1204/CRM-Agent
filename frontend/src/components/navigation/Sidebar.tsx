@@ -13,8 +13,8 @@ import { cn } from "@/lib/utils";
 
 const navItems = [
   { href: "/", label: "Dashboard", icon: Home },
-  { href: "/console", label: "Agent Console", icon: MessageSquare },
-  { href: "/explorer", label: "Data Explorer", icon: Database },
+  { href: "/agent", label: "Agent Console", icon: MessageSquare },
+  { href: "/data", label: "Data Explorer", icon: Database },
   { href: "/reports", label: "Report Builder", icon: BarChart3 },
   { href: "/automations", label: "Automations", icon: Zap },
   { href: "/audit", label: "Audit Logs", icon: Clock },
